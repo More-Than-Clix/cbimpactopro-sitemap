@@ -12,7 +12,7 @@ from googleapiclient.discovery import build
 # ─── Configuración ────────────────────────────────────────────────────────────
 
 SITE_URL = "https://www.cbimpactopro.com/"   # Con barra al final, tal como está en Search Console
-SITEMAP_URL = "https://raw.githubusercontent.com/{TU_USUARIO}/{TU_REPO}/main/sitemap_properties.xml"
+SITEMAP_URL = "https://raw.githubusercontent.com/opapi/cbimpactopro-sitemap/main/sitemap_properties.xml"
 # IMPORTANTE: reemplazá {TU_USUARIO} y {TU_REPO} con tus datos reales de GitHub
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters"]
