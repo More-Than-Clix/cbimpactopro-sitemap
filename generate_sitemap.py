@@ -108,7 +108,8 @@ async def scroll_and_collect(page) -> set[str]:
     descubrir todas las fichas /p/...
     """
     print(f"\n🔍 Explorando fichas con scroll: {LISTING_URL}")
-    await page.goto(LISTING_URL, wait_until="networkidle", timeout=60000)
+    await page.goto(LISTING_URL, wait_until="domcontentloaded", timeout=60000)
+    await asyncio.sleep(3)  # esperar que cargue el contenido inicial
 
     found_urls = set()
     previous_count = 0
