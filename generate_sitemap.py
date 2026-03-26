@@ -48,7 +48,12 @@ async def crawl_site(page):
 async def collect_properties(page):
     print(f"\n Recolectando fichas desde: {LISTING_URL}")
     await page.goto(LISTING_URL, wait_until="domcontentloaded", timeout=60000)
-    await asyncio.sleep(4)
+    try:
+        await page.wait_for_selector("#propiedades", timeout=20000)
+        print("  Contenedor de fichas detectado.")
+    except Exception:
+        print("  Advertencia: contenedor #propiedades no detectado, continuando igual.")
+    await asyncio.sleep(5)
     found_urls = set()
     previous_count = 0
     no_new_count = 0
