@@ -51,7 +51,5 @@ jobs:
           git diff --staged --quiet || git commit -m "🗺️ Sitemap actualizado - $(date '+%Y-%m-%d')"
           git push
 
-      - name: Enviar sitemap a Google Search Console
-        env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+      - name: Notificar buscadores
         run: python submit_sitemap.py
