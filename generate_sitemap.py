@@ -54,6 +54,17 @@ async def collect_properties(page):
     except Exception:
         print("  Advertencia: contenedor #propiedades no detectado, continuando igual.")
     await asyncio.sleep(5)
+    
+    # DIAGNOSTICO - mostrar HTML que ve el crawler
+    html = await page.content()
+    tiene_propiedades = "#propiedades" in html or "prop-id" in html
+    tiene_buscar = "/Buscar" in html
+    print(f"  HTML recibido: {len(html)} caracteres")
+    print(f"  Contiene prop-id: {tiene_propiedades}")
+    print(f"  Contiene /Buscar: {tiene_buscar}")
+    url_actual = page.url
+    print(f"  URL actual despues de cargar: {url_actual}")
+    
     found_urls = set()
     previous_count = 0
     no_new_count = 0
