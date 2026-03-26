@@ -2,94 +2,99 @@ import asyncio
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-from playwright.async_api import async_playwright
+import urllib.request
+import urllib.parse
+import json
+import re
 
 BASE_URL = "https://www.cbimpactopro.com"
-LISTING_URL = "https://www.cbimpactopro.com/Buscar?operation=1,2&o=2,2&1=1"
 PROPERTY_PREFIX = "/p/"
-MAX_SCROLLS = 100
-SCROLL_WAIT = 3.0
 OUTPUT_FILE = "sitemap_properties.xml"
-EXCLUDE_PATTERNS = ["/api/", "?", "#", "javascript:", "mailto:", ".pdf", ".jpg", ".png", ".gif", "/Buscar", "/Favoritos"]
 
-def is_internal(url):
-    parsed = urlparse(url)
-    return parsed.netloc in ("www.cbimpactopro.com", "cbimpactopro.com", "")
+STATIC_PAGES = [
+    "https://www.cbimpactopro.com",
+    "https://www.cbimpactopro.com/Propiedades",
+    "https://www.cbimpactopro.com/Venta",
+    "https://www.cbimpactopro.com/Alquiler",
+    "https://www.cbimpactopro.com/Emprendimientos",
+    "https://www.cbimpactopro.com/Tasacion",
+    "https://www.cbimpactopro.com/Contacto",
+    "https://www.cbimpactopro.com/s/Nuestro-equipo",
+    "https://www.cbimpactopro.com/s/Nuestros-Tours-Virtuales-Inmobiliarios",
+    "https://www.cbimpactopro.com/s/Terminos-y-Privacidad",
+]
 
-def should_exclude(url):
-    return any(p in url for p in EXCLUDE_PATTERNS)
+SEARCH_URL = (
+    "https://www.cbimpactopro.com/Buscar"
+    "?q=&currency=ANY&min-price=&max-price="
+    "&min-roofed=&max-roofed=&min-surface=&max-surface="
+    "&min-total_surface=&max-total_surface="
+    "&min-front_measure=&max-front_measure="
+    "&min-depth_measure=&max-depth_measure="
+    "&age=&min-age=&max-age=&suites=&rooms="
+    "&credit_eligible=&is_exclusive=&tags="
+    "&operation=1,2&locations=&location_type=&ptypes="
+    "&o=2,2&watermark=&p={page}"
+)
 
-def clean_url(url):
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": "https://www.cbimpactopro.com/Buscar?operation=1,2&o=2,2&1=1",
+}
 
-async def crawl_site(page):
-    print("\n Rastreando sitio completo...")
-    visited = set()
-    to_visit = {BASE_URL}
-    while to_visit:
-        url = to_visit.pop()
-        if url in visited:
-            continue
-        visited.add(url)
+def fetch_page(page_num):
+    url = SEARCH_URL.format(page=page_num)
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.read().decode("utf-8")
+
+def extract_property_urls(html):
+    pattern = r'href="(/p/[^"]+)"'
+    matches = re.findall(pattern, html)
+    urls = set()
+    for m in matches:
+        full = f"https://www.cbimpactopro.com{m}"
+        parsed = urlparse(full)
+        clean = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        urls.add(clean)
+    return urls
+
+def collect_properties():
+    print("\n Recolectando fichas via API paginada...")
+    all_urls = set()
+    page = 1
+
+    while True:
+        print(f"  Pagina {page}...", end=" ")
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            links = await page.eval_on_selector_all("a[href]", "els => els.map(el => el.href)")
-            for link in links:
-                c = clean_url(link)
-                if c and c not in visited and is_internal(c) and not should_exclude(c) and PROPERTY_PREFIX not in c:
-                    to_visit.add(c)
-            print(f"  OK {url} ({len(visited)} visitadas, {len(to_visit)} pendientes)")
-        except Exception as e:
-            print(f"  ERROR {url}: {e}")
-    print(f"  Paginas estaticas: {len(visited)}")
-    return visited
+            html = fetch_page(page)
+            urls = extract_property_urls(html)
+            print(f"{len(urls)} fichas encontradas")
 
-async def collect_properties(page):
-    print(f"\n Recolectando fichas desde: {LISTING_URL}")
-    await page.goto(LISTING_URL, wait_until="domcontentloaded", timeout=60000)
-    try:
-        await page.wait_for_selector("#propiedades", timeout=20000)
-        print("  Contenedor de fichas detectado.")
-    except Exception:
-        print("  Advertencia: contenedor #propiedades no detectado, continuando igual.")
-    await asyncio.sleep(5)
-    
-    # DIAGNOSTICO - mostrar HTML que ve el crawler
-    html = await page.content()
-    tiene_propiedades = "#propiedades" in html or "prop-id" in html
-    tiene_buscar = "/Buscar" in html
-    print(f"  HTML recibido: {len(html)} caracteres")
-    print(f"  Contiene prop-id: {tiene_propiedades}")
-    print(f"  Contiene /Buscar: {tiene_buscar}")
-    url_actual = page.url
-    print(f"  URL actual despues de cargar: {url_actual}")
-    
-    found_urls = set()
-    previous_count = 0
-    no_new_count = 0
-    for i in range(MAX_SCROLLS):
-        links = await page.eval_on_selector_all(
-            "#propiedades a[href], .results-area a[href]",
-            "els => els.map(el => el.href)"
-        )
-        for link in links:
-            if PROPERTY_PREFIX in link:
-                found_urls.add(clean_url(link))
-        current_count = len(found_urls)
-        print(f"  Scroll {i+1}/{MAX_SCROLLS} - fichas: {current_count}")
-        if current_count == previous_count:
-            no_new_count += 1
-            if no_new_count >= 4:
-                print("  No hay mas fichas nuevas. Terminando.")
+            if not urls:
+                print(f"  Pagina {page} vacia. Terminando.")
                 break
-        else:
-            no_new_count = 0
-        previous_count = current_count
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(SCROLL_WAIT)
-    print(f"  Total fichas: {len(found_urls)}")
-    return found_urls
+
+            # Si todas las URLs ya las tenemos, terminamos
+            new_urls = urls - all_urls
+            if not new_urls and page > 1:
+                print(f"  Sin fichas nuevas. Terminando.")
+                break
+
+            all_urls.update(urls)
+            page += 1
+
+        except Exception as e:
+            print(f"  Error en pagina {page}: {e}")
+            break
+
+    print(f"  Total fichas unicas: {len(all_urls)}")
+    return all_urls
 
 def generate_xml(static_urls, property_urls):
     urlset = ET.Element("urlset")
@@ -110,27 +115,24 @@ def generate_xml(static_urls, property_urls):
     ET.indent(ET.ElementTree(urlset), space="  ")
     return ET.tostring(urlset, encoding="unicode", xml_declaration=True)
 
-async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 900},
-        )
-        page = await context.new_page()
-        static_urls = await crawl_site(page)
-        property_urls = await collect_properties(page)
-        await browser.close()
+def main():
+    static_urls = set(STATIC_PAGES)
+    print(f" Paginas estaticas: {len(static_urls)}")
+
+    property_urls = collect_properties()
+
     total = len(static_urls) + len(property_urls)
     print(f"\nTotal URLs: {total}")
     print(f"  Estaticas: {len(static_urls)}")
     print(f"  Fichas: {len(property_urls)}")
+
     if total == 0:
         print("No se encontraron URLs.")
         return
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(generate_xml(static_urls, property_urls))
     print(f"Sitemap guardado: {OUTPUT_FILE}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
